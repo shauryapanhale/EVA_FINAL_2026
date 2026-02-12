@@ -35,56 +35,69 @@ class SystemExecutor:
         logger.info("✓ System executor initialized")
 
     def set_volume(self, level):
-        """Set system volume (0-100) using keyboard - SIMPLE & WORKS!"""
+        """Set system volume (0-100)"""
         try:
-            logger.info(f"🔊 Setting volume to {level}%")
-            level = max(0, min(100, level))
-    
+            # Convert text numbers to int
+            if isinstance(level, str):
+                # Try to convert text number
+                number_words = {
+                'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+                'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+                'twenty': 20, 'thirty': 30, 'forty': 40, 'fifty': 50, 
+                'sixty': 60, 'seventy': 70, 'eighty': 80, 'ninety': 90, 'hundred': 100
+                }
+                level = number_words.get(level.lower(), level)
+        
+            level = max(0, min(100, int(level)))
+            logger.info(f"Setting volume to {level}%")
+        
             try:
                 import time
                 from pynput.keyboard import Controller, Key
-        
                 keyboard = Controller()
-        
-                # First, press volume down 50 times to go to minimum
+            
+                # Reset to min
                 logger.info("Resetting to min volume...")
                 for _ in range(50):
                     keyboard.press(Key.media_volume_down)
                     keyboard.release(Key.media_volume_down)
                     time.sleep(0.01)
-        
                 time.sleep(0.3)
-        
-                # Now press volume up to reach target level
-                # Windows has ~50 volume steps, so we calculate presses needed
+            
+                # Set to target
                 target_presses = int((level / 100) * 50)
                 logger.info(f"Setting to {level}% ({target_presses} presses)...")
-        
                 for _ in range(target_presses):
                     keyboard.press(Key.media_volume_up)
                     keyboard.release(Key.media_volume_up)
                     time.sleep(0.01)
-        
+            
                 logger.info(f"✓ Volume set to {level}%")
                 return {"success": True, "message": f"Volume set to {level}%"}
-        
             except Exception as e:
                 logger.error(f"Keyboard volume failed: {e}")
                 return {"success": False, "error": str(e)}
-
         except Exception as e:
             logger.error(f"Failed to set volume: {e}")
             return {"success": False, "error": str(e)}
 
 
-
-
     def set_brightness(self, level):
-        """Set screen brightness (0-100) via WMI"""
+        """Set screen brightness (0-100)"""
         try:
-            logger.info(f"💡 Setting brightness to {level}%")
-            level = max(0, min(100, level))
-            
+            # Convert text numbers to int
+            if isinstance(level, str):
+                number_words = {
+                'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+                'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+                'twenty': 20, 'thirty': 30, 'forty': 40, 'fifty': 50, 
+                'sixty': 60, 'seventy': 70, 'eighty': 80, 'ninety': 90, 'hundred': 100
+                }
+                level = number_words.get(level.lower(), level)
+        
+            level = max(0, min(100, int(level)))
+            logger.info(f"Setting brightness to {level}%")
+        
             try:
                 import wmi
                 c = wmi.WMI(namespace='wmi')
@@ -93,17 +106,15 @@ class SystemExecutor:
                 logger.info(f"✓ Brightness set to {level}%")
                 return {"success": True, "message": f"Brightness set to {level}%"}
             except Exception as wmi_err:
-                logger.warning(f"WMI failed: {wmi_err}, trying PowerShell...")
-                
-                ps_command = f'(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{level})'
-                subprocess.run(['powershell', '-Command', ps_command], 
-                             check=True, capture_output=True, timeout=5)
-                logger.info(f"✓ Brightness set to {level}% via PowerShell")
+                logger.warning(f"WMI failed ({wmi_err}), trying PowerShell...")
+                ps_command = f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{level})"
+                subprocess.run(['powershell', '-Command', ps_command], check=True, capture_output=True, timeout=5)
+                logger.info(f"✓ Brightness set to {level}% (via PowerShell)")
                 return {"success": True, "message": f"Brightness set to {level}%"}
-                
         except Exception as e:
-            logger.error(f"❌ Brightness control failed: {e}")
+            logger.error(f"Brightness control failed: {e}")
             return {"success": False, "error": str(e)}
+
 
     def toggle_quick_setting(self, setting_name):
         """Toggle a Quick Settings option (WiFi, Bluetooth, etc.) via Windows + A"""

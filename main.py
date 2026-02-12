@@ -42,6 +42,26 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFrame, QStackedWidget, QSizePolicy,
     QDialog, QMessageBox, QGraphicsDropShadowEffect, QStackedLayout
 )
+def text_to_number(text):
+    """Convert text numbers to digits"""
+    if isinstance(text, int):
+        return text
+    text = str(text).lower().strip()
+    number_words = {
+        'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+        'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
+        'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20,
+        'thirty': 30, 'forty': 40, 'fifty': 50, 'sixty': 60, 'seventy': 70,
+        'eighty': 80, 'ninety': 90, 'hundred': 100
+    }
+    if text in number_words:
+        return number_words[text]
+    try:
+        return int(text)
+    except:
+        return None
+
 
 # Hide that pkg_resources deprecation notice from dependencies
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API", category=UserWarning)
@@ -137,6 +157,14 @@ MODEL1_TRAINING_DATA = [
     ("open app and play", "APP_WITH_ACTION"), ("start app and compose", "APP_WITH_ACTION"),
     ("play music", "MEDIA_CONTROL"), ("play video", "MEDIA_CONTROL"), ("stream music", "MEDIA_CONTROL"), ("stream video", "MEDIA_CONTROL"),
     ("open spotify and play", "MEDIA_CONTROL"), ("open youtube and play", "MEDIA_CONTROL"),
+    ("play song on spotify", "MEDIA_CONTROL"), ("play sapphire on spotify", "MEDIA_CONTROL"),
+    ("play blinding lights on spotify", "MEDIA_CONTROL"), ("play shape of you on spotify", "MEDIA_CONTROL"),
+    ("play something on spotify", "MEDIA_CONTROL"), ("play a song on spotify", "MEDIA_CONTROL"),
+    ("play any song on spotify", "MEDIA_CONTROL"), ("play music on spotify", "MEDIA_CONTROL"),
+    ("play on spotify", "MEDIA_CONTROL"), ("play on youtube", "MEDIA_CONTROL"),
+    ("play bohemian rhapsody on spotify", "MEDIA_CONTROL"), ("play despacito on spotify", "MEDIA_CONTROL"),
+    ("play song spotify", "MEDIA_CONTROL"), ("play track on spotify", "MEDIA_CONTROL"),
+    ("stream song on spotify", "MEDIA_CONTROL"), ("play album on spotify", "MEDIA_CONTROL"),
     ("send whatsapp to", "SEND_MESSAGE"), ("send message to", "SEND_MESSAGE"), ("whatsapp to", "SEND_MESSAGE"),
  ("post on social", "SEND_MESSAGE"), ("message to", "SEND_MESSAGE"),
     ("whatsapp mom", "SEND_MESSAGE"), 
@@ -188,6 +216,9 @@ MODEL1_TRAINING_DATA = [
     ("increase volume", "SYSTEM"),
     ("mute volume", "SYSTEM"),
     ("set brightness to 70", "SYSTEM"),
+    ("set brightness to 100", "SYSTEM"),
+    ("set brightness to 20", "SYSTEM"),
+    ("brightness to 50", "SYSTEM"),
     ("shutdown computer", "SYSTEM"),
     ("restart system", "SYSTEM"),
     ("lock computer", "SYSTEM"),
@@ -214,6 +245,15 @@ MODEL1_TRAINING_DATA = [
     ("send a mail", "SENDMAIL"),
     ("mail compose", "SENDMAIL"),
     ("write email to", "SENDMAIL"),
+    ("goodbye eva", "EXIT"),
+("goodbye e", "EXIT"),
+("exit eva", "EXIT"),
+("close eva", "EXIT"),
+("quit eva", "EXIT"),
+("stop eva", "EXIT"),
+("bye eva", "EXIT"),
+("see you later eva", "EXIT"),
+
     # === CALCULATOR Commands ===
     ("open calculator", "CALCULATOR"),
     ("launch calculator", "CALCULATOR"),
@@ -541,12 +581,14 @@ MODEL2_STEP_RULES = {
     ],
     "MEDIA_CONTROL": [
         *STEP_TEMPLATES["open_app_windows"],
-        {"action_type": "WAIT", "parameters": {"duration": 4}, "description": "Wait for media app"},
-        {"action_type": "PRESS_KEY", "parameters": {"key": "ctrl+k"}, "description": "Focus search"},
-        {"action_type": "WAIT", "parameters": {"duration": 1}, "description": "Wait for search"},
-        {"action_type": "TYPE_TEXT", "parameters": {"text": "{media_query}"}, "description": "Search: {media_query}"},
-        {"action_type": "WAIT", "parameters": {"duration": 2}, "description": "Wait for search"},
-        {"action_type": "PRESS_KEY", "parameters": {"key": "shift+enter"}, "description": "Play"},
+        {"action_type": "WAIT", "parameters": {"duration": 5}, "description": "Wait for media app to fully load"},
+        {"action_type": "FOCUS_WINDOW", "parameters": {"title": "{app_name}"}, "description": "Focus Spotify window"},
+        {"action_type": "WAIT", "parameters": {"duration": 1}, "description": "Wait for window focus"},
+        {"action_type": "PRESS_KEY", "parameters": {"key": "ctrl+k"}, "description": "Open Spotify search bar (ctrl+k)"},
+        {"action_type": "WAIT", "parameters": {"duration": 1.5}, "description": "Wait for search bar to open"},
+        {"action_type": "TYPE_TEXT", "parameters": {"text": "{media_query}"}, "description": "Type song name: {media_query}"},
+        {"action_type": "WAIT", "parameters": {"duration": 2.5}, "description": "Wait for search results to load"},
+        {"action_type": "PRESS_KEY", "parameters": {"key": "shift+enter"}, "description": "Play top result (shift+enter)"},
     ],
     "SEND_MESSAGE": [
         *STEP_TEMPLATES["open_app_windows"],
@@ -1403,15 +1445,36 @@ class EvaGui(QWidget):
             self.bus.log.emit("⚠️ Error analyzing command!")
             return
 
-        self._display_classification_results()
+        # Safety net: "play [song] on spotify/youtube" can be misclassified as OPEN_APP
+        # Force it to MEDIA_CONTROL
+        raw_lower = prompt.lower()
+        if self.current_model1_result['command_type'] == 'OPEN_APP':
+            media_apps = ['spotify', 'youtube', 'netflix', 'vlc']
+            has_play = 'play' in raw_lower or 'stream' in raw_lower
+            has_media_app = any(app in raw_lower for app in media_apps)
+            if has_play and has_media_app:
+                self.current_model1_result['command_type'] = 'MEDIA_CONTROL'
+                self.bus.log.emit("[INFO] Reclassified as MEDIA_CONTROL\n")
 
+        self._display_classification_results()
+        command_type = self.current_model1_result['command_type']
+    
+        if command_type == 'EXIT':
+            self.bus.log.emit("👋 Goodbye! Closing EVA...")
+            self.bus.status.emit("Goodbye!")
+            QTimer.singleShot(1000, lambda: sys.exit(0))
+            return
         self.current_extracted_keywords = self._extract_keywords_by_command_type(
             self.current_model1_result['input'], self.current_model1_result['command_type']
         )
         self._display_keyword_results()
 
         command_type = self.current_model1_result['command_type']
-        
+        if command_type == 'EXIT':
+            self.bus.log.emit("👋 Goodbye! Closing EVA...")
+            self.bus.status.emit("Goodbye!")
+            QTimer.singleShot(1000, lambda: sys.exit(0))
+            return
         if command_type == "SENDMAIL":
             self.bus.log.emit("🎤 Starting voice-based mail composition...\n")
             
@@ -1573,155 +1636,177 @@ class EvaGui(QWidget):
         import re
         raw_command_lower = raw_command.lower().strip()
         words = raw_command_lower.split()
+    
         extracted = {
-            'app_name': None, 'search_query': None, 'text_content': None, 'action_target': None, 'keyboard_shortcut': None,
-            'system_action': None, 'window_action': None, 'profile_name': None, 'website': None, 'media_query': None,
-            'recipient': None, 'message_content': None, 'action_content': None, 'is_file_operation': False, 'file_path': None,
-            'target_type': None, 'is_known_folder': False, 'needs_search': False, 'search_target': None, 'has_message_content': False,
+        'app_name': None,
+        'search_query': None,
+        'text_content': None,
+        'action_target': None,
+        'keyboard_shortcut': None,
+        'system_action': None,
+        'window_action': None,
+        'profile_name': None,
+        'website': None,
+        'media_query': None,
+        'recipient': None,
+        'message_content': None,
+        'action_content': None,
+        'is_file_operation': False,
+        'file_path': None,
+        'target_type': None,
+        'is_known_folder': False,
+        'needs_search': False,
+        'search_target': None,
+        'has_message_content': False,
         }
-        if command_type == "OPEN_APP":
-            trigger = ['open', 'launch', 'start', 'run']
+    
+        if command_type == 'OPEN_APP':
+            trigger = ['open', 'launch', 'start', 'run', 'play']
             extracted['app_name'] = self._extract_app_name(words, trigger)
-        elif command_type == "CLOSE_APP":
+    
+        elif command_type == 'CLOSE_APP':
             trigger = ['close', 'exit', 'quit']
             extracted['app_name'] = self._extract_app_name(words, trigger) or 'current'
-        elif command_type == "OPEN_FOLDER":
+    
+        elif command_type == 'OPEN_FOLDER':
             is_file_op, target_name, target_type, is_known = self._extract_file_or_folder_path(words, raw_command_lower)
             if is_known:
                 extracted['file_path'] = target_name
             else:
                 extracted['search_target'] = target_name
-        elif command_type == "SEARCH_FILE":
+    
+        elif command_type == 'SEARCH_FILE':
             is_file_op, target_name, target_type, is_known = self._extract_file_or_folder_path(words, raw_command_lower)
             extracted['search_target'] = target_name
-        elif command_type == "WEB_SEARCH":
+    
+        elif command_type == 'WEB_SEARCH':
             extracted['profile_name'] = self._extract_profile_name(raw_command_lower)
             website, query, is_search = self._extract_website_and_action(raw_command_lower)
             extracted['website'] = website
             extracted['search_query'] = query
-            extracted['is_search_query'] = is_search  # True if searching, False if just opening
-        elif command_type == "TYPE_TEXT":
-            extracted['text_content'] = self._extract_text_after_keywords(raw_command.split(), ['type', 'write', 'enter'], {'text', 'message'})
-        elif command_type in ["MOUSE_CLICK", "MOUSE_RIGHTCLICK", "MOUSE_DOUBLECLICK"]:
-            skip = {'click', 'on', 'here', 'it', 'this', 'right', 'double'}
+            extracted['is_search_query'] = is_search
+    
+        elif command_type == 'TYPE_TEXT':
+            extracted['text_content'] = self._extract_text_after_keywords(raw_command.split(), ['type', 'write', 'enter', 'text', 'message'])
+    
+        elif command_type in ['MOUSE_CLICK', 'MOUSE_RIGHTCLICK', 'MOUSE_DOUBLECLICK']:
+            skip = ['click', 'on', 'here', 'it', 'this', 'right', 'double']
             extracted['action_target'] = ' '.join([w for w in raw_command.split() if w.lower() not in skip]) or 'current'
-        elif command_type == "WINDOW_ACTION":
+    
+        elif command_type == 'WINDOW_ACTION':
             extracted['window_action'] = 'maximize' if any(w in raw_command.lower().split() for w in ['maximize', 'fullscreen']) else 'minimize'
-        elif command_type == "KEYBOARD":
+    
+        elif command_type == 'KEYBOARD':
             shortcuts = {'copy': 'ctrl+c', 'paste': 'ctrl+v', 'save': 'ctrl+s', 'undo': 'ctrl+z'}
             for word, shortcut in shortcuts.items():
                 if word in raw_command_lower:
                     extracted['keyboard_shortcut'] = shortcut
                     break
-        elif command_type == "SYSTEM":
-            # Extract control_type and percentage
+    
+        elif command_type == 'SYSTEM':
             extracted['control_type'] = None
             extracted['percentage'] = None
             extracted['system_action'] = raw_command.lower()
-            
-            # WiFi
-            if 'wifi' in words or 'wi-fi' in words or 'wi fi' in words:
-                extracted['control_type'] = 'WIFI'
-                extracted['system_action'] = 'WIFI'
-            
-            # Bluetooth
-            elif 'bluetooth' in words:
-                extracted['control_type'] = 'BLUETOOTH'
-                extracted['system_action'] = 'BLUETOOTH'
-            
-            # Flight Mode
-            elif 'flight' in words or 'airplane' in words:
-                extracted['control_type'] = 'FLIGHTMODE'
-                extracted['system_action'] = 'FLIGHTMODE'
-            
-            # Night Light
-            elif 'night' in words and 'light' in words:
-                extracted['control_type'] = 'NIGHTLIGHT'
-                extracted['system_action'] = 'NIGHTLIGHT'
-            
-            # Energy Saver
-            elif 'energy' in words or 'saver' in words or 'battery' in words:
-                extracted['control_type'] = 'ENERGYSAVER'
-                extracted['system_action'] = 'ENERGYSAVER'
-            
-            # Mobile Hotspot
-            elif 'hotspot' in words or 'mobile' in words:
-                extracted['control_type'] = 'MOBILEHOTSPOT'
-                extracted['system_action'] = 'MOBILEHOTSPOT'
-            
-            # Volume
-            elif 'volume' in words:
+        
+            # === VOLUME HANDLING ===
+            if 'volume' in words:
                 extracted['control_type'] = 'VOLUME'
                 extracted['system_action'] = 'VOLUME'
-                # Extract percentage
-                import re
-                match = re.search(r'\d+', raw_command)
-                if match:
-                    extracted['percentage'] = int(match.group())
-            
-            # Brightness
+                for word in words:
+                    level = text_to_number(word)
+                    if level is not None and 0 <= level <= 100:
+                        extracted['percentage'] = level
+                        break
+        
+            # === BRIGHTNESS HANDLING ===
             elif 'brightness' in words:
                 extracted['control_type'] = 'BRIGHTNESS'
                 extracted['system_action'] = 'BRIGHTNESS'
-                # Extract percentage
-                import re
-                match = re.search(r'\d+', raw_command)
-                if match:
-                    extracted['percentage'] = int(match.group())
-
-        elif command_type == "APP_WITH_ACTION":
+                for word in words:
+                    level = text_to_number(word)
+                    if level is not None and 0 <= level <= 100:
+                        extracted['percentage'] = level
+                        break
+        
+            # === OTHER SYSTEM CONTROLS ===
+            elif 'wifi' in words or 'wi-fi' in words or 'wi fi' in words:
+                extracted['control_type'] = 'WIFI'
+                extracted['system_action'] = 'WIFI'
+            elif 'bluetooth' in words:
+                extracted['control_type'] = 'BLUETOOTH'
+                extracted['system_action'] = 'BLUETOOTH'
+            elif 'flight' in words or 'airplane' in words:
+                extracted['control_type'] = 'FLIGHTMODE'
+                extracted['system_action'] = 'FLIGHTMODE'
+            elif 'night' in words and 'light' in words:
+                extracted['control_type'] = 'NIGHTLIGHT'
+                extracted['system_action'] = 'NIGHTLIGHT'
+            elif 'energy' in words or 'saver' in words or 'battery' in words:
+                extracted['control_type'] = 'ENERGYSAVER'
+                extracted['system_action'] = 'ENERGYSAVER'
+            elif 'hotspot' in words or 'mobile' in words:
+                extracted['control_type'] = 'MOBILEHOTSPOT'
+                extracted['system_action'] = 'MOBILEHOTSPOT'
+    
+        elif command_type == 'APP_WITH_ACTION':
             if 'and' in raw_command_lower:
                 and_idx = raw_command_lower.split().index('and')
                 extracted['app_name'] = self._extract_app_name(raw_command.split()[:and_idx], ['open', 'launch', 'start'])
                 extracted['action_content'] = ' '.join([w for w in raw_command.split()[and_idx+1:] if w.lower() not in ['search', 'type', 'play']])
-        elif command_type == "MEDIA_CONTROL":
+    
+        elif command_type == 'MEDIA_CONTROL':
             apps = ['spotify', 'netflix', 'youtube', 'vlc']
             app_name = next((app for app in apps if app in raw_command_lower), 'spotify')
             extracted['app_name'] = app_name
+        
             play_idx = -1
-            if 'play' in raw_command_lower:
-                play_idx = raw_command_lower.split().index('play')
-            elif 'stream' in raw_command_lower:
-                play_idx = raw_command_lower.split().index('stream')
+            raw_lower_words = raw_command_lower.split()
+            if 'play' in raw_lower_words:
+                play_idx = raw_lower_words.index('play')
+            elif 'stream' in raw_lower_words:
+                play_idx = raw_lower_words.index('stream')
+        
             if play_idx != -1:
-                extracted['media_query'] = ' '.join(raw_command.split()[play_idx+1:])
-        elif command_type == "SEND_MESSAGE":
-            apps_map = {
-                'whatsapp': 'whatsapp', 'email': 'outlook', 'social': 'facebook', 'twitter': 'twitter',
-                'instagram': 'instagram', 'telegram': 'telegram',
-            }
-            extracted['app_name'] = next((v for k, v in apps_map.items() if k in raw_command_lower), 'whatsapp')
+                query_parts = raw_command.split()[play_idx + 1:]
+                # Remove app names and stop words from query
+                filtered_query = [word for word in query_parts if word.lower() not in apps + ['on', 'in', 'from']]
+                extracted['media_query'] = ' '.join(filtered_query)
 
-            match = re.search(r'send\s+(.*?)\s+to\s+(.*)', raw_command, re.IGNORECASE)
+    
+        elif command_type == 'SEND_MESSAGE':
+            apps_map = {'whatsapp': 'whatsapp', 'email': 'outlook', 'social': 'facebook', 
+                    'twitter': 'twitter', 'instagram': 'instagram', 'telegram': 'telegram'}
+            extracted['app_name'] = next((v for k, v in apps_map.items() if k in raw_command_lower), 'whatsapp')
+        
+            match = re.search(r'send.*?to\s+(.*?)(?:saying|that)\s+(.*)', raw_command, re.IGNORECASE)
             if match:
                 extracted['message_content'] = match.group(1)
                 extracted['recipient'] = match.group(2)
                 return extracted
-
-            match = re.search(r'to\s+(.*?)\s+(?:message|saying|that)\s+(.*)', raw_command, re.IGNORECASE)
+        
+            match = re.search(r'to\s+(.*?)(?:message|saying|that)\s+(.*)', raw_command, re.IGNORECASE)
             if match:
                 extracted['recipient'] = match.group(1)
                 extracted['message_content'] = match.group(2)
                 return extracted
-
-            match = re.search(r'to\s+(\w+)\s+(.*)', raw_command, re.IGNORECASE)
+        
+            match = re.search(r'to\s+(.*)', raw_command, re.IGNORECASE)
             if match:
                 extracted['recipient'] = match.group(1)
                 extracted['message_content'] = match.group(2)
                 return extracted
-
+        
             if 'to' in raw_command_lower:
                 to_idx = raw_command_lower.split().index('to')
                 extracted['recipient'] = ' '.join(raw_command.split()[to_idx + 1:])
-        elif command_type == "CALCULATOR":
+    
+        elif command_type == 'CALCULATOR':
             import re
-            # Extract numbers and operation
             numbers = re.findall(r'\d+', raw_command)
             extracted['number1'] = numbers[0] if len(numbers) > 0 else ''
             extracted['number2'] = numbers[1] if len(numbers) > 1 else ''
-    
-            # Extract operation type
-            if any(word in raw_command_lower for word in ['plus', 'add', '+']):
+        
+            if any(word in raw_command_lower for word in ['plus', 'add']):
                 extracted['operation'] = 'plus'
             elif any(word in raw_command_lower for word in ['minus', 'subtract', '-']):
                 extracted['operation'] = 'minus'
@@ -1737,41 +1822,40 @@ class EvaGui(QWidget):
                 extracted['operation'] = 'scientific'
             elif 'standard' in raw_command_lower:
                 extracted['operation'] = 'standard'
-        elif command_type == "CAMERA":
-            extracted['action_content'] = 'take_photo'
-            if "open" in raw_command_lower:
-                extracted['action_content'] = 'open_camera'
-        elif command_type == "CLOCK_ALARM":
-            import re
-            # Extract time from command
-            # Patterns: "7 am", "8:30", "9 30 pm", etc.
     
-            # Try matching HH:MM format
+        elif command_type == 'CAMERA':
+            extracted['action_content'] = 'take_photo'
+            if 'open' in raw_command_lower:
+                extracted['action_content'] = 'open_camera'
+    
+        elif command_type == 'CLOCK_ALARM':
+            import re
             match = re.search(r'(\d{1,2}):(\d{2})', raw_command)
             if match:
                 extracted['hour'] = match.group(1)
                 extracted['minute'] = match.group(2)
             else:
-                # Try matching separate hour and minute
                 numbers = re.findall(r'\d{1,2}', raw_command)
                 if len(numbers) >= 1:
                     extracted['hour'] = numbers[0]
                     extracted['minute'] = numbers[1] if len(numbers) > 1 else '00'
-    
-            # Check for AM/PM
+        
             if 'pm' in raw_command_lower and extracted.get('hour'):
                 hour = int(extracted['hour'])
+
                 if hour < 12:
                     extracted['hour'] = str(hour + 12)
             elif 'am' in raw_command_lower and extracted.get('hour'):
                 hour = int(extracted['hour'])
                 if hour == 12:
                     extracted['hour'] = '0'
-
+    
         return extracted
+
 
     def _generate_steps_model2(self, command_type, extracted_keywords, raw_command=None):
     # Special handling for SYSTEM commands (nested dict)
+
         if command_type == "SYSTEM":
             control_type = extracted_keywords.get('control_type', '').upper()
             system_action = extracted_keywords.get('system_action', '').upper()
@@ -1815,6 +1899,38 @@ class EvaGui(QWidget):
                 generated_steps.append(step_copy)
         
             return generated_steps
+        elif command_type == 'MEDIA_CONTROL':
+        # Get app name and media query from extracted keywords
+            app_name = extracted_keywords.get('app_name', 'spotify')
+            media_query = extracted_keywords.get('media_query', '')
+        
+            self.bus.log.emit(f"[DEBUG] app_name={app_name}, media_query={media_query}")
+        
+            steps = []
+        
+            # Open the app first
+            steps.extend([
+            {"action_type": "PRESS_KEY", "parameters": {"key": "win"}, "description": "Open Start Menu"},
+            {"action_type": "WAIT", "parameters": {"duration": 0.5}, "description": "Wait for menu"},
+            {"action_type": "TYPE_TEXT", "parameters": {"text": app_name or "spotify"}, "description": f"Type {app_name or 'spotify'}"},
+            {"action_type": "PRESS_KEY", "parameters": {"key": "enter"}, "description": f"Launch {app_name or 'spotify'}"},
+            {"action_type": "WAIT", "parameters": {"duration": 5}, "description": f"Wait for {app_name or 'spotify'} to fully load"},
+            ])
+        
+            # If there's a search query, search for it
+            if media_query:
+                steps.extend([
+                {"action_type": "FOCUS_WINDOW", "parameters": {"title": app_name or "spotify"}, "description": f"Focus {app_name or 'Spotify'} window"},
+                {"action_type": "WAIT", "parameters": {"duration": 1}, "description": "Wait for window focus"},
+                {"action_type": "PRESS_KEY", "parameters": {"key": "ctrl+k"}, "description": "Open Spotify search bar (ctrl+k)"},
+                {"action_type": "WAIT", "parameters": {"duration": 1.5}, "description": "Wait for search bar to open"},
+                {"action_type": "TYPE_TEXT", "parameters": {"text": media_query}, "description": f"Type song name: {media_query}"},
+                {"action_type": "WAIT", "parameters": {"duration": 2.5}, "description": "Wait for search results to load"},
+                {"action_type": "PRESS_KEY", "parameters": {"key": "shift+enter"}, "description": "Play top result (shift+enter)"},
+                ])
+        
+            return steps
+
         elif command_type == "CLOCK_ALARM":
             steps = []
     
@@ -1910,10 +2026,12 @@ class EvaGui(QWidget):
             elif 'minus' in operation or 'subtract' in operation:
                 for digit in str(num1):
                     steps.append({"action_type": "PRESS_KEY", "parameters": {"key": digit}, "description": f"Press {digit}"})
-                steps.append({"action_type": "PRESS_KEY", "parameters": {"key": "-"}, "description": "Press minus"})
+                # Use TYPE_TEXT for minus to avoid key combo issues
+                steps.append({"action_type": "TYPE_TEXT", "parameters": {"text": "-"}, "description": "Press minus"})
                 for digit in str(num2):
                     steps.append({"action_type": "PRESS_KEY", "parameters": {"key": digit}, "description": f"Press {digit}"})
                 steps.append({"action_type": "PRESS_KEY", "parameters": {"key": "enter"}, "description": "Calculate result"})
+
         
             elif 'multiply' in operation or 'times' in operation:
                 for digit in str(num1):
