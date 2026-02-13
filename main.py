@@ -1777,28 +1777,44 @@ class EvaGui(QWidget):
             apps_map = {'whatsapp': 'whatsapp', 'email': 'outlook', 'social': 'facebook', 
                     'twitter': 'twitter', 'instagram': 'instagram', 'telegram': 'telegram'}
             extracted['app_name'] = next((v for k, v in apps_map.items() if k in raw_command_lower), 'whatsapp')
-        
-            match = re.search(r'send.*?to\s+(.*?)(?:saying|that)\s+(.*)', raw_command, re.IGNORECASE)
+
+            # Pattern 1: "send [message] to [recipient]"
+            # e.g. "send hello to John on whatsapp"
+            match = re.search(r'send\s+(.+?)\s+to\s+(\w+)', raw_command, re.IGNORECASE)
             if match:
-                extracted['message_content'] = match.group(1)
-                extracted['recipient'] = match.group(2)
+                extracted['message_content'] = match.group(1).strip()
+                extracted['recipient'] = match.group(2).strip()
+                extracted['has_message_content'] = True
                 return extracted
-        
-            match = re.search(r'to\s+(.*?)(?:message|saying|that)\s+(.*)', raw_command, re.IGNORECASE)
+
+            # Pattern 2: "send message to [recipient] saying [message]"
+            match = re.search(r'send.*?to\s+([\w\s]+?)\s+(?:saying|that|message)\s+(.+)', raw_command, re.IGNORECASE)
             if match:
-                extracted['recipient'] = match.group(1)
-                extracted['message_content'] = match.group(2)
+                extracted['recipient'] = match.group(1).strip()
+                extracted['message_content'] = match.group(2).strip()
+                extracted['has_message_content'] = True
                 return extracted
-        
-            match = re.search(r'to\s+(.*)', raw_command, re.IGNORECASE)
+
+            # Pattern 3: "whatsapp/message/text [message] to [recipient]"
+            match = re.search(r'(?:whatsapp|message|text)\s+(.+?)\s+to\s+(\w+)', raw_command, re.IGNORECASE)
             if match:
-                extracted['recipient'] = match.group(1)
-                extracted['message_content'] = match.group(2)
+                extracted['message_content'] = match.group(1).strip()
+                extracted['recipient'] = match.group(2).strip()
+                extracted['has_message_content'] = True
                 return extracted
-        
+
+            # Pattern 4: "to [recipient]" only — will ask for message later
+            match = re.search(r'\bto\s+(\w+)', raw_command, re.IGNORECASE)
+            if match:
+                extracted['recipient'] = match.group(1).strip()
+                return extracted
+
+            # Fallback: grab word after 'to'
             if 'to' in raw_command_lower:
                 to_idx = raw_command_lower.split().index('to')
-                extracted['recipient'] = ' '.join(raw_command.split()[to_idx + 1:])
+                remaining = raw_command.split()[to_idx + 1:]
+                if remaining:
+                    extracted['recipient'] = remaining[0]
     
         elif command_type == 'CALCULATOR':
             import re
